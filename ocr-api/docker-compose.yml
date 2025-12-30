@@ -1,0 +1,12 @@
+version: '3.9'
+
+services:
+  ocr-api:
+    build: .
+    container_name: ocr-api
+    ports:
+      - "8800:8800"
+    volumes:
+      - .:/docker
+    environment:
+      - PYTHONUNBUFFERED=1

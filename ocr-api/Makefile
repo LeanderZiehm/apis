@@ -1,3 +1,2 @@
 build:
-	docker build -t ocr-api .
-	docker run -p 8800:8800 ocr-api
+	docker-compose up --build --force-recreate -d 
