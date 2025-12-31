@@ -4,6 +4,7 @@ from datetime import datetime
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from pydantic import BaseModel
 from markitdown import MarkItDown
+from fastapi.openapi.docs import get_swagger_ui_html
 
 app = FastAPI(title="PPTX to Markdown API")
 
@@ -13,6 +14,10 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 class UploadResponse(BaseModel):
     filename: str
     markdown: str
+
+@app.get("/", include_in_schema=False)
+async def custom_swagger_ui():
+    return get_swagger_ui_html(openapi_url="/openapi.json", title="OCR API Docs")
 
 @app.post("/upload", response_model=UploadResponse)
 async def upload_pptx(file: UploadFile = File(...)):

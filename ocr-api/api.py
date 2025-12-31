@@ -7,6 +7,10 @@ from fastapi.openapi.docs import get_swagger_ui_html
 
 app = FastAPI(title="OCR API")
 
+@app.get("/", include_in_schema=False)
+async def custom_swagger_ui():
+    return get_swagger_ui_html(openapi_url="/openapi.json", title="OCR API Docs")
+
 @app.post("/ocr/")
 async def ocr_endpoint(file: UploadFile = File(...)):
     # Read uploaded file
@@ -20,6 +24,3 @@ async def ocr_endpoint(file: UploadFile = File(...)):
     text = pytesseract.image_to_string(img)
     return {"filename": file.filename, "text": text}
 
-@app.get("/", include_in_schema=False)
-async def custom_swagger_ui():
-    return get_swagger_ui_html(openapi_url="/openapi.json", title="OCR API Docs")
