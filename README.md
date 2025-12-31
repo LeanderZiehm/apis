@@ -6,6 +6,7 @@ ocr-api
 
 
 # In Development
+tts-api
 file-api
 
 
