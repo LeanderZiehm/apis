@@ -1,3 +1,4 @@
+import os
 from fastapi import FastAPI, Depends
 from sqlalchemy import (
     create_engine,
@@ -13,16 +14,30 @@ from datetime import datetime
 from enum import Enum as PyEnum
 from typing import List
 from fastapi.openapi.docs import get_swagger_ui_html
+# from dotenv import load_dotenv
+
+# -------------------------------------------------------------------
+# Load environment
+# -------------------------------------------------------------------
+
+# load_dotenv()
+
+DB_HOST = os.getenv("POSTGRES_HOST")
+DB_PORT = os.getenv("POSTGRES_PORT")
+DB_NAME = os.getenv("POSTGRES_DB")
+DB_USER = os.getenv("POSTGRES_USER")
+DB_PASSWORD = os.getenv("POSTGRES_PASSWORD")
+
+DATABASE_URL = (
+    f"postgresql+psycopg2://{DB_USER}:{DB_PASSWORD}"
+    f"@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+)
 
 # -------------------------------------------------------------------
 # Database
 # -------------------------------------------------------------------
 
-DATABASE_URL = "sqlite:///./data.db"
-
-engine = create_engine(
-    DATABASE_URL, connect_args={"check_same_thread": False}
-)
+engine = create_engine(DATABASE_URL, pool_pre_ping=True)
 SessionLocal = sessionmaker(bind=engine)
 Base = declarative_base()
 
@@ -57,7 +72,7 @@ class TimerEvent(Base):
     id = Column(Integer, primary_key=True)
     category = Column(String, index=True)
     name = Column(String, index=True)
-    action = Column(Enum(TimerAction), nullable=False)
+    action = Column(Enum(TimerAction, name="timer_action"), nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
 
@@ -152,50 +167,44 @@ def list_events(
     limit: int = 100,
     db: Session = Depends(get_db),
 ):
-    query = db.query(Event)
-
+    q = db.query(Event)
     if category:
-        query = query.filter(Event.category == category)
+        q = q.filter(Event.category == category)
     if name:
-        query = query.filter(Event.name == name)
+        q = q.filter(Event.name == name)
 
-    return query.order_by(Event.created_at.desc()).limit(limit).all()
+    return q.order_by(Event.created_at.desc()).limit(limit).all()
 
 # -------------------------------------------------------------------
 # Timer API
 # -------------------------------------------------------------------
 
 @app.post("/timers", response_model=TimerRead)
-def create_timer_event(data: TimerCreate, db: Session = Depends(get_db)):
-    timer_event = TimerEvent(
-        category=data.category,
-        name=data.name,
-        action=data.action,
-    )
-    db.add(timer_event)
+def create_timer(data: TimerCreate, db: Session = Depends(get_db)):
+    timer = TimerEvent(**data.dict())
+    db.add(timer)
     db.commit()
-    db.refresh(timer_event)
-    return timer_event
+    db.refresh(timer)
+    return timer
 
 
 @app.get("/timers", response_model=List[TimerRead])
-def list_timer_events(
+def list_timers(
     category: str | None = None,
     name: str | None = None,
     action: TimerAction | None = None,
     limit: int = 100,
     db: Session = Depends(get_db),
 ):
-    query = db.query(TimerEvent)
-
+    q = db.query(TimerEvent)
     if category:
-        query = query.filter(TimerEvent.category == category)
+        q = q.filter(TimerEvent.category == category)
     if name:
-        query = query.filter(TimerEvent.name == name)
+        q = q.filter(TimerEvent.name == name)
     if action:
-        query = query.filter(TimerEvent.action == action)
+        q = q.filter(TimerEvent.action == action)
 
-    return query.order_by(TimerEvent.created_at.desc()).limit(limit).all()
+    return q.order_by(TimerEvent.created_at.desc()).limit(limit).all()
 
 # -------------------------------------------------------------------
 # Measurement API
@@ -217,11 +226,10 @@ def list_measurements(
     limit: int = 100,
     db: Session = Depends(get_db),
 ):
-    query = db.query(Measurement)
-
+    q = db.query(Measurement)
     if category:
-        query = query.filter(Measurement.category == category)
+        q = q.filter(Measurement.category == category)
     if name:
-        query = query.filter(Measurement.name == name)
+        q = q.filter(Measurement.name == name)
 
-    return query.order_by(Measurement.created_at.desc()).limit(limit).all()
+    return q.order_by(Measurement.created_at.desc()).limit(limit).all()
