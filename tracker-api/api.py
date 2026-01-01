@@ -102,7 +102,7 @@ class EventRead(EventCreate):
     created_at: datetime
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 class TimerCreate(BaseModel):
@@ -116,7 +116,7 @@ class TimerRead(TimerCreate):
     created_at: datetime
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 class MeasurementCreate(BaseModel):
@@ -131,7 +131,7 @@ class MeasurementRead(MeasurementCreate):
     created_at: datetime
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 # -------------------------------------------------------------------
 # App
