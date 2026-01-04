@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>OpenAPI Explorer</title>
+<style>
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    h1, h2, h3 { margin-top: 1em; }
+    .endpoint { border: 1px solid #ccc; padding: 10px; margin: 10px 0; }
+    .response { background: #f9f9f9; padding: 10px; margin-top: 10px; white-space: pre-wrap; }
+    label { display: block; margin-top: 5px; }
+    input, textarea, select { width: 100%; padding: 5px; margin-top: 2px; }
+    button { margin-top: 10px; padding: 5px 10px; }
+</style>
+</head>
+<body>
+
+<h1>OpenAPI Explorer</h1>
+<div id="content"></div>
+
+<script>
+// Store OpenAPI JSON
+const openapi = {
+  "openapi":"3.1.0",
+  "info":{"title":"PPTX to Markdown API","version":"0.1.0"},
+  "paths":{
+    "/upload":{
+      "post":{
+        "summary":"Upload Pptx",
+        "operationId":"upload_pptx_upload_post",
+        "requestBody":{
+          "content":{
+            "multipart/form-data":{
+              "schema":{"$ref":"#/components/schemas/Body_upload_pptx_upload_post"}
+            }
+          },
+          "required":true
+        },
+        "responses":{
+          "200":{
+            "description":"Successful Response",
+            "content":{
+              "application/json":{
+                "schema":{"$ref":"#/components/schemas/UploadResponse"}
+              }
+            }
+          },
+          "422":{
+            "description":"Validation Error",
+            "content":{
+              "application/json":{
+                "schema":{"$ref":"#/components/schemas/HTTPValidationError"}
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components":{
+    "schemas":{
+      "Body_upload_pptx_upload_post":{
+        "type":"object",
+        "required":["file"],
+        "properties":{
+          "file":{"type":"string","format":"binary","title":"File"}
+        }
+      },
+      "HTTPValidationError":{
+        "type":"object",
+        "properties":{
+          "detail":{
+            "type":"array",
+            "items":{"$ref":"#/components/schemas/ValidationError"}
+          }
+        }
+      },
+      "UploadResponse":{
+        "type":"object",
+        "required":["filename","markdown"],
+        "properties":{
+          "filename":{"type":"string","title":"Filename"},
+          "markdown":{"type":"string","title":"Markdown"}
+        }
+      },
+      "ValidationError":{
+        "type":"object",
+        "required":["loc","msg","type"],
+        "properties":{
+          "loc":{"type":"array","items":{"anyOf":[{"type":"string"},{"type":"integer"}]}},
+          "msg":{"type":"string","title":"Message"},
+          "type":{"type":"string","title":"Error Type"}
+        }
+      }
+    }
+  }
+};
+
+// Utility to resolve $ref
+function resolveRef(ref) {
+    const path = ref.replace(/^#\//, '').split('/');
+    return path.reduce((obj, key) => obj[key], openapi);
+}
+
+// Generate form input fields from schema
+function generateForm(schema) {
+    const div = document.createElement('div');
+    for (let key in schema.properties) {
+        const prop = schema.properties[key];
+        const label = document.createElement('label');
+        label.textContent = prop.title || key;
+        let input;
+        if (prop.format === 'binary') {
+            input = document.createElement('input');
+            input.type = 'file';
+        } else if (prop.type === 'string') {
+            input = document.createElement('textarea');
+        } else {
+            input = document.createElement('input');
+            input.type = 'text';
+        }
+        input.name = key;
+        if (schema.required && schema.required.includes(key)) input.required = true;
+        label.appendChild(input);
+        div.appendChild(label);
+    }
+    return div;
+}
+
+// Build UI
+const content = document.getElementById('content');
+for (let path in openapi.paths) {
+    for (let method in openapi.paths[path]) {
+        const endpoint = openapi.paths[path][method];
+        const box = document.createElement('div');
+        box.className = 'endpoint';
+        const h2 = document.createElement('h2');
+        h2.textContent = `${method.toUpperCase()} ${path}`;
+        box.appendChild(h2);
+        if (endpoint.summary) {
+            const p = document.createElement('p');
+            p.textContent = endpoint.summary;
+            box.appendChild(p);
+        }
+
+        // Form
+        const form = document.createElement('form');
+        form.enctype = 'multipart/form-data';
+        if (endpoint.requestBody) {
+            const contentType = Object.keys(endpoint.requestBody.content)[0];
+            const schemaRef = endpoint.requestBody.content[contentType].schema.$ref;
+            const schema = resolveRef(schemaRef);
+            form.appendChild(generateForm(schema));
+        }
+
+        const btn = document.createElement('button');
+        btn.textContent = 'Send Request';
+        form.appendChild(btn);
+
+        const resp = document.createElement('div');
+        resp.className = 'response';
+
+        form.onsubmit = async (e) => {
+            e.preventDefault();
+            const formData = new FormData(form);
+            try {
+                const response = await fetch(path, { method: method.toUpperCase(), body: formData });
+                const data = await response.json();
+                resp.textContent = JSON.stringify(data, null, 2);
+            } catch (err) {
+                resp.textContent = 'Error: ' + err;
+            }
+        };
+
+        box.appendChild(form);
+        box.appendChild(resp);
+        content.appendChild(box);
+    }
+}
+</script>
+
+</body>
+</html>

@@ -22,8 +22,5 @@ RUN pip install --no-cache-dir pytesseract
 # Copy application
 COPY api.py .
 
-# Expose port
-EXPOSE 8000
-
 # Run FastAPI
 CMD ["uvicorn", "api:app", "--host", "0.0.0.0", "--port", "8800"]
