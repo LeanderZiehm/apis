@@ -59,4 +59,10 @@ async def track_pixel(slug: str, request: Request):
     finally:
         db.close()
 
-    return StreamingResponse(io.BytesIO(PIXEL_BYTES), media_type="image/png")
+    headers = {
+        "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+        "Pragma": "no-cache",
+        "Expires": "0"
+    }
+
+    return StreamingResponse(io.BytesIO(PIXEL_BYTES), media_type="image/png", headers=headers)
