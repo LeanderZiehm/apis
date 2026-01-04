@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Image Upload</title>
+<style>
+body {
+  font-family: system-ui, sans-serif;
+  background: #0f172a;
+  color: #e5e7eb;
+  display: flex;
+  justify-content: center;
+  padding: 40px;
+}
+
+.card {
+  background: #020617;
+  border-radius: 12px;
+  padding: 24px;
+  width: 420px;
+  box-shadow: 0 20px 40px rgba(0,0,0,0.4);
+}
+
+h1 {
+  font-size: 1.2rem;
+  margin-bottom: 16px;
+}
+
+input[type="file"] {
+  width: 100%;
+  margin-bottom: 16px;
+}
+
+button {
+  width: 100%;
+  padding: 10px;
+  background: #2563eb;
+  border: none;
+  border-radius: 8px;
+  color: white;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+button:hover {
+  background: #1d4ed8;
+}
+
+.preview {
+  margin-top: 16px;
+}
+
+.preview img {
+  max-width: 100%;
+  border-radius: 8px;
+  margin-top: 8px;
+}
+
+.code {
+  font-size: 12px;
+  word-break: break-all;
+  background: #020617;
+  border: 1px solid #1e293b;
+  padding: 8px;
+  border-radius: 6px;
+  margin-top: 8px;
+}
+</style>
+</head>
+
+<body>
+<div class="card">
+  <h1>Upload Image</h1>
+
+  <input type="file" id="file" />
+  <button onclick="upload()">Upload</button>
+
+  <div class="preview" id="preview"></div>
+</div>
+
+<script>
+const API = "";//same origin
+
+async function upload() {
+  const fileInput = document.getElementById("file");
+  if (!fileInput.files.length) return;
+
+  const formData = new FormData();
+  formData.append("file", fileInput.files[0]);
+
+  const res = await fetch(`${API}/image/`, {
+    method: "POST",
+    body: formData
+  });
+
+  const data = await res.json();
+
+  const imgUrl = `${API}/image/${data.key}`;
+
+  document.getElementById("preview").innerHTML = `
+    <div>Uploaded:</div>
+    <img src="${imgUrl}" />
+    <div class="code">${imgUrl}</div>
+  `;
+}
+</script>
+</body>
+</html>
