@@ -1,0 +1,8 @@
+services:
+  llm-api:
+    container_name: llm-api
+    build: .
+    environment:
+      GROQ_API_KEY: ${GROQ_API_KEY}
+    ports:
+      - "8805:8805"
