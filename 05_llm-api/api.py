@@ -1,6 +1,5 @@
 import time
 from typing import List, Dict, Optional
-
 import requests
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
@@ -42,81 +41,66 @@ class ModelState:
 
 class ModelPool:
     def __init__(self, models: List[str]):
-        self.models: Dict[str, ModelState] = {
-            m: ModelState(m) for m in models
-        }
+        self.models_order: List[str] = models.copy()
+        self.models: Dict[str, ModelState] = {m: ModelState(m) for m in models}
 
-    def get_available_models(self) -> List[ModelState]:
-        return [m for m in self.models.values() if m.is_available()]
+    def get_available_models(self) -> List[str]:
+        return [m for m in self.models_order if self.models[m].is_available()]
 
     def all_disabled(self) -> bool:
         return not any(m.is_available() for m in self.models.values())
+
+    def reorder(self, new_order: List[str]):
+        # Keep only models that exist
+        filtered_order = [m for m in new_order if m in self.models]
+        # Add any models not in new_order at the end
+        remaining = [m for m in self.models_order if m not in filtered_order]
+        self.models_order = filtered_order + remaining
+        print(f"[INFO] New model order: {self.models_order}")
 
 
 # -----------------------------
 # Groq Client
 # -----------------------------
+class RateLimitError(Exception):
+    def __init__(self, retry_after: int):
+        self.retry_after = retry_after
+
+
 class GroqClient:
     def __init__(self, model_pool: ModelPool):
         self.model_pool = model_pool
 
-    def chat(self, messages: List[dict]) -> dict:
-        available_models = self.model_pool.get_available_models()
-
-        if not available_models:
-            raise HTTPException(
-                status_code=503,
-                detail="All models are currently rate-limited",
-            )
+    def chat(self, messages: List[dict], model: Optional[str] = None) -> dict:
+        models_to_try = [model] if model else self.model_pool.get_available_models()
+        if not models_to_try:
+            raise HTTPException(status_code=503, detail="All models are currently rate-limited")
 
         last_error = None
 
-        for model_state in available_models:
+        for model_id in models_to_try:
+            model_state = self.model_pool.models[model_id]
             try:
-                response = self._call_model(
-                    model_state.model_id, messages
-                )
+                response = self._call_model(model_id, messages)
                 return response
             except RateLimitError as e:
                 model_state.disable(e.retry_after)
                 last_error = e
 
-        raise HTTPException(
-            status_code=429,
-            detail="Rate limit exceeded for all available models",
-        )
+        raise HTTPException(status_code=429, detail="Rate limit exceeded for all available models")
 
     def _call_model(self, model_id: str, messages: List[dict]) -> dict:
-        payload = {
-            "model": model_id,
-            "messages": messages,
-        }
-
-        response = requests.post(
-            GROQ_API_URL,
-            headers=HEADERS,
-            json=payload,
-            timeout=30,
-        )
+        payload = {"model": model_id, "messages": messages}
+        response = requests.post(GROQ_API_URL, headers=HEADERS, json=payload, timeout=30)
 
         if response.status_code == 429:
-            retry_after = int(
-                response.headers.get("retry-after", "5")
-            )
+            retry_after = int(response.headers.get("retry-after", "5"))
             raise RateLimitError(retry_after)
 
         if not response.ok:
-            raise HTTPException(
-                status_code=response.status_code,
-                detail=response.text,
-            )
+            raise HTTPException(status_code=response.status_code, detail=response.text)
 
         return response.json()
-
-
-class RateLimitError(Exception):
-    def __init__(self, retry_after: int):
-        self.retry_after = retry_after
 
 
 # -----------------------------
@@ -124,60 +108,111 @@ class RateLimitError(Exception):
 # -----------------------------
 app = FastAPI(title="Groq Auto Model Switcher")
 
-all_models=[
-       "openai/gpt-oss-120b",
-        "llama-3.3-70b-versatile"
-    ]
+all_models = [
+    "openai/gpt-oss-120b",
+    "llama-3.3-70b-versatile",
+    "openai/gpt-oss-20b",
+    "qwen/qwen3-32b",
+    "llama-3.1-8b-instant",
+]
 
-model_pool = ModelPool(
-    models=all_models
-)
-
-# "llama-3.1-8b-instant",
-# "qwen/qwen3-32b",
-# "openai/gpt-oss-20b",
-
+model_pool = ModelPool(models=all_models)
 groq_client = GroqClient(model_pool)
 
 
-class ChatRequest(BaseModel):
+# -----------------------------
+# Pydantic Schemas
+# -----------------------------
+class ChatRequestManuel(BaseModel):
+    message: str
+    model: Optional[str]
+
+class ChatRequestAuto(BaseModel):
     message: str
 
+
+class ReorderRequest(BaseModel):
+    new_order: List[str]
+    class ConfigDict:
+        json_schema_extra = {
+            "example": {
+                "new_order": [
+                    "leander2 llama-3.3-70b-versatile",
+                    "openai/gpt-oss-120b",
+                    "llama-3.1-8b-instant"
+                ]
+            }
+        }
+
+
+# -----------------------------
+# Endpoints
+# -----------------------------
 @app.get("/models/available")
-def get_models():
-    return groq_client.model_pool.get_available_models()
+def get_available_models():
+    return {"available_models": model_pool.get_available_models()}
+
 
 @app.post("/chat/auto")
-def chat(request: ChatRequest):
-    messages = [
-        {"role": "user", "content": request.message}
-    ]
-
+def chat_auto(request: ChatRequestAuto):
+    messages = [{"role": "user", "content": request.message}]
     response = groq_client.chat(messages)
-
     return {
         "model_used": response["model"],
         "response": response["choices"][0]["message"]["content"],
     }
 
 
-# @app.post("/chat/manual")
-# def chat(request: ChatRequest):
-#     messages = [
-#         {"role": "user", "content": request.message}
-#     ]
+@app.post("/chat/manual")
+def chat_manual(request: ChatRequestManuel):
+    if not request.model or request.model not in all_models:
+        raise HTTPException(status_code=400, detail="Invalid or missing model")
 
-#     if request.model not in all_models:
-#         return 401 invalid model
-
-#     response = groq_client.chat(messages,model=model)
-
-#     return {
-#         "model_used": response["model"],
-#         "response": response["choices"][0]["message"]["content"],
-#     }
+    messages = [{"role": "user", "content": request.message}]
+    response = groq_client.chat(messages, model=request.model)
+    return {
+        "model_used": response["model"],
+        "response": response["choices"][0]["message"]["content"],
+    }
 
 
-# @post(/models/reorder)
-# def reorder_models():
-#     # the usere should be able to set what model is his favorite that should be the first one that gets tried till its rate limited then it should go to the users second favorite and so on 
+@app.post("/models/reorder")
+def reorder_models(request: ReorderRequest):
+    model_pool.reorder(request.new_order)
+    return {"new_order": model_pool.models_order}
+
+
+@app.get("/models/best")
+def get_best_model():
+    """
+    Returns the user's favorite model (first in the priority list)
+    along with its availability status.
+    """
+    if not model_pool.models_order:
+        return {"error": "No models configured"}
+
+    best_model_id = model_pool.models_order[0]
+    best_model_state = model_pool.models[best_model_id]
+
+    return {
+        "model": best_model_id,
+        "available": best_model_state.is_available()
+    }
+
+
+@app.get("/models/best-available")
+def get_best_available_model():
+    """
+    Returns the highest-priority model that is currently available.
+    """
+    available_models = model_pool.get_available_models()
+    if not available_models:
+        return {"error": "No models currently available"}
+
+    best_available_model = available_models[0]
+    return {
+        "model": best_available_model,
+        "available": True
+    }
+
+
