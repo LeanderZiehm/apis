@@ -92,6 +92,7 @@ class GroqClient:
 
     def _call_model(self, model_id: str, messages: List[dict]) -> dict:
         payload = {"model": model_id, "messages": messages}
+        print(payload)
         response = requests.post(GROQ_API_URL, headers=HEADERS, json=payload, timeout=30)
 
         if response.status_code == 429:
@@ -126,10 +127,20 @@ groq_client = GroqClient(model_pool)
 # -----------------------------
 class ChatRequestManuel(BaseModel):
     message: str
-    model: Optional[str]
+    model: str
+    system_prompt: Optional[str]
 
 class ChatRequestAuto(BaseModel):
     message: str
+    system_prompt: Optional[str]
+
+    class ConfigDict:
+        json_schema_extra = {
+            "example": {
+                "message": "hi",
+                "system_prompt": "You are a helpful assistant"
+            }
+        }
 
 
 class ReorderRequest(BaseModel):
@@ -150,6 +161,10 @@ class ReorderRequest(BaseModel):
 async def custom_swagger_ui():
     return get_swagger_ui_html(openapi_url="/openapi.json", title="OCR API Docs")
 
+
+
+# def chat 
+
 # -----------------------------
 # Endpoints
 # -----------------------------
@@ -158,9 +173,12 @@ def get_available_models():
     return {"available_models": model_pool.get_available_models()}
 
 
+
+
+
 @app.post("/chat/auto")
 def chat_auto(request: ChatRequestAuto):
-    messages = [{"role": "user", "content": request.message}]
+    messages = [{ "role": "system", "content": request.system_prompt },{"role": "user", "content": request.message}]
     response = groq_client.chat(messages)
     return {
         "model_used": response["model"],
@@ -173,7 +191,7 @@ def chat_manual(request: ChatRequestManuel):
     if not request.model or request.model not in all_models:
         raise HTTPException(status_code=400, detail="Invalid or missing model")
 
-    messages = [{"role": "user", "content": request.message}]
+    messages = [{ "role": "system", "content": request.system_prompt },{"role": "user", "content": request.message}]
     response = groq_client.chat(messages, model=request.model)
     return {
         "model_used": response["model"],
