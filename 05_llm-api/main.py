@@ -4,6 +4,7 @@ import requests
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import os 
+from fastapi.openapi.docs import get_swagger_ui_html
 
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
@@ -144,6 +145,10 @@ class ReorderRequest(BaseModel):
             }
         }
 
+
+@app.get("/", include_in_schema=False)
+async def custom_swagger_ui():
+    return get_swagger_ui_html(openapi_url="/openapi.json", title="OCR API Docs")
 
 # -----------------------------
 # Endpoints
