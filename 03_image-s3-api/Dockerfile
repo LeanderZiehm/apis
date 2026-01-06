@@ -5,7 +5,7 @@ WORKDIR /docker
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY api.py .
+COPY main.py .
 COPY static/ static/
 
-CMD ["uvicorn", "api:app", "--host", "0.0.0.0", "--port", "8803"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8803"]

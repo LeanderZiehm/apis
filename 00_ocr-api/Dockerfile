@@ -20,7 +20,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 RUN pip install --no-cache-dir pytesseract
 
 # Copy application
-COPY api.py .
+COPY main.py .
 
 # Run FastAPI
-CMD ["uvicorn", "api:app", "--host", "0.0.0.0", "--port", "8800"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8800"]
