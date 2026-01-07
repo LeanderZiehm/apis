@@ -8,6 +8,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     Enum,
+    JSON
 )
 from sqlalchemy.orm import sessionmaker, declarative_base, Session
 from datetime import datetime
@@ -54,10 +55,8 @@ def get_db():
 
 class Event(Base):
     __tablename__ = "events"
-
     id = Column(Integer, primary_key=True)
-    category = Column(String, index=True)
-    name = Column(String, index=True)
+    text = Column(String, index=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
 
@@ -68,10 +67,8 @@ class TimerAction(str, PyEnum):
 
 class TimerEvent(Base):
     __tablename__ = "timer_events"
-
     id = Column(Integer, primary_key=True)
-    category = Column(String, index=True)
-    name = Column(String, index=True)
+    text = Column(String, index=True)
     action = Column(Enum(TimerAction, name="timer_action"), nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
@@ -80,11 +77,19 @@ class Measurement(Base):
     __tablename__ = "measurements"
 
     id = Column(Integer, primary_key=True)
-    category = Column(String, index=True)
-    name = Column(String, index=True)
+    text = Column(String, index=True)
     value = Column(Float, nullable=False)
-    unit = Column(String, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class Json(Base):
+    __tablename__ = "json"
+
+    id = Column(Integer, primary_key=True)
+    text = Column(String, index=True)
+    body = Column(JSON)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
 
 # -------------------------------------------------------------------
 # Schemas
@@ -93,8 +98,7 @@ class Measurement(Base):
 from pydantic import BaseModel
 
 class EventCreate(BaseModel):
-    category: str
-    name: str
+    text: str
 
 
 class EventRead(EventCreate):
@@ -106,8 +110,7 @@ class EventRead(EventCreate):
 
 
 class TimerCreate(BaseModel):
-    category: str
-    name: str
+    text: str
     action: TimerAction
 
 
@@ -120,13 +123,24 @@ class TimerRead(TimerCreate):
 
 
 class MeasurementCreate(BaseModel):
-    category: str
-    name: str
+    text: str
     value: float
-    unit: str
 
 
 class MeasurementRead(MeasurementCreate):
+    id: int
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class JsonCreate(BaseModel):
+    text: str
+    body: dict
+
+
+class JsonRead(JsonCreate):
     id: int
     created_at: datetime
 
@@ -190,17 +204,16 @@ def create_timer(data: TimerCreate, db: Session = Depends(get_db)):
 
 @app.get("/timers", response_model=List[TimerRead])
 def list_timers(
-    category: str | None = None,
-    name: str | None = None,
+
+    text: str | None = None,
     action: TimerAction | None = None,
     limit: int = 100,
     db: Session = Depends(get_db),
 ):
     q = db.query(TimerEvent)
-    if category:
-        q = q.filter(TimerEvent.category == category)
-    if name:
-        q = q.filter(TimerEvent.name == name)
+
+    if text:
+        q = q.filter(TimerEvent.text == text)
     if action:
         q = q.filter(TimerEvent.action == action)
 
@@ -212,7 +225,7 @@ def list_timers(
 
 @app.post("/measurements", response_model=MeasurementRead)
 def create_measurement(data: MeasurementCreate, db: Session = Depends(get_db)):
-    measurement = Measurement(**data.dict())
+    measurement = Measurement(**data.model_dump())
     db.add(measurement)
     db.commit()
     db.refresh(measurement)
@@ -221,15 +234,35 @@ def create_measurement(data: MeasurementCreate, db: Session = Depends(get_db)):
 
 @app.get("/measurements", response_model=List[MeasurementRead])
 def list_measurements(
-    category: str | None = None,
-    name: str | None = None,
+    text: str | None = None,
     limit: int = 100,
     db: Session = Depends(get_db),
 ):
     q = db.query(Measurement)
-    if category:
-        q = q.filter(Measurement.category == category)
-    if name:
-        q = q.filter(Measurement.name == name)
+    if text:
+        q = q.filter(Measurement.text == text)
 
     return q.order_by(Measurement.created_at.desc()).limit(limit).all()
+
+
+
+@app.post("/json", response_model=JsonRead)
+def create_json(data: JsonCreate, db: Session = Depends(get_db)):
+    json = Json(**data.model_dump())
+    db.add(json)
+    db.commit()
+    db.refresh(json)
+    return json
+
+
+@app.get("/json", response_model=List[JsonRead])
+def list_json(
+    text: str | None = None,
+    limit: int = 100,
+    db: Session = Depends(get_db),
+):
+    q = db.query(Json)
+    if text:
+        q = q.filter(Json.text == text)
+
+    return q.order_by(Json.created_at.desc()).limit(limit).all()
