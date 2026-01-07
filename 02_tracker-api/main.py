@@ -64,6 +64,20 @@ class TimerAction(str, PyEnum):
     START = "START"
     END = "END"
 
+class HabitWhen(str, PyEnum):
+    NOW = "NOW"
+    TODAY = "TODAY"
+    YESTERDAY = "YESTERDAY"
+    OTHER = "OTHER"
+
+class Habit(Base):
+    __tablename__ = "habits"
+    id = Column(Integer, primary_key=True)
+    type = Column(String, index=True)
+    description = Column(String, index=True)
+    when = Column(Enum(HabitWhen, name="habit_when"), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
 
 class TimerEvent(Base):
     __tablename__ = "timer_events"
@@ -102,6 +116,22 @@ class EventCreate(BaseModel):
 
 
 class EventRead(EventCreate):
+    id: int
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+
+class HabitCreate(BaseModel):
+    type: str
+    description:str
+    when: HabitWhen
+    
+
+
+class HabitRead(HabitCreate):
     id: int
     created_at: datetime
 
@@ -266,3 +296,37 @@ def list_json(
         q = q.filter(Json.text == text)
 
     return q.order_by(Json.created_at.desc()).limit(limit).all()
+
+
+# -------------------------------------------------------------------
+# Habit API
+# -------------------------------------------------------------------
+
+@app.post("/habits", response_model=HabitRead)
+def create_habbit(data: HabitCreate, db: Session = Depends(get_db)):
+    timer = Habit(**data.dict())
+    db.add(timer)
+    db.commit()
+    db.refresh(timer)
+    return timer
+
+
+@app.get("/habits", response_model=List[HabitRead])
+def list_habbits(
+
+    type: str | None = None,
+    when: HabitWhen | None = None,
+    limit: int = 100,
+    db: Session = Depends(get_db),
+):
+    q = db.query(Habit)
+
+    if type:
+        q = q.filter(Habit.type == type)
+    if when:
+        q = q.filter(Habit.when == when)
+
+    return q.order_by(Habit.created_at.desc()).limit(limit).all()
+
+
+HabitRead
