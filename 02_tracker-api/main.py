@@ -15,6 +15,7 @@ from datetime import datetime
 from enum import Enum as PyEnum
 from typing import List
 from fastapi.openapi.docs import get_swagger_ui_html
+from fastapi.middleware.cors import CORSMiddleware
 # from dotenv import load_dotenv
 
 # -------------------------------------------------------------------
@@ -182,6 +183,14 @@ class JsonRead(JsonCreate):
 # -------------------------------------------------------------------
 
 app = FastAPI(title="Minimal Event / Timer / Measurement API")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 Base.metadata.create_all(bind=engine)
 
