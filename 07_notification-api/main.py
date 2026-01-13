@@ -1,6 +1,6 @@
 import os
 
-import requests
+import httpx
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
@@ -23,17 +23,17 @@ class MessageIn(BaseModel):
 
 
 @app.post("/notify/me")
-def send_message(payload: MessageIn):
-    response = requests.post(
-        TELEGRAM_URL,
-        json={
-            "chat_id": CHAT_ID,
-            "text": payload.text,
-        },
-        timeout=10,
-    )
+async def send_message(payload: MessageIn):
+    async with httpx.AsyncClient(timeout=10) as client:
+        response = await client.post(
+            TELEGRAM_URL,
+            json={
+                "chat_id": CHAT_ID,
+                "text": payload.text,
+            },
+        )
 
-    if not response.ok:
+    if response.status_code != 200:
         raise HTTPException(
             status_code=500,
             detail=response.text,
