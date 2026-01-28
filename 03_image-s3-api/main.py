@@ -39,6 +39,11 @@ def get_index_html():
     path = Path("./static/index.html")
     return FileResponse(path)
 
+@app.get("/gallery")
+def get_index_html():
+    path = Path("./static/gallery.html")
+    return FileResponse(path)
+
 
 
 # ---------- Routes ----------
@@ -68,8 +73,32 @@ def get_image(key: str):
         obj = s3.get_object(Bucket=BUCKET, Key=key)
     except Exception:
         raise HTTPException(404, "Image not found")
+    
+    headers = {
+        "Cache-Control": "public, max-age=31536000, immutable"
+    }
 
     return StreamingResponse(
         obj["Body"],
         media_type=obj["ContentType"],
+        headers=headers
     )
+
+@app.get("/images/")
+def list_images():
+    try:
+        response = s3.list_objects_v2(Bucket=BUCKET)
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+    contents = response.get("Contents", [])
+    return {
+        "images": [
+            {
+                "key": obj["Key"],
+                "size": obj["Size"],
+                "last_modified": obj["LastModified"],
+            }
+            for obj in contents
+        ]
+    }

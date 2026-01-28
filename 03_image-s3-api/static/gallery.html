@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Image Gallery</title>
+<style>
+body {
+  font-family: system-ui, sans-serif;
+  background: #0f172a;
+  color: #e5e7eb;
+  padding: 40px;
+}
+
+.card {
+  background: #020617;
+  border-radius: 12px;
+  padding: 24px;
+  max-width: 1200px;
+  margin: auto;
+  box-shadow: 0 20px 40px rgba(0,0,0,0.4);
+}
+
+h1 {
+  font-size: 1.5rem;
+  margin-bottom: 16px;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.grid img {
+  width: 100%;
+  border-radius: 8px;
+}
+
+button {
+  margin-top: 24px;
+  padding: 10px 20px;
+  background: #2563eb;
+  border: none;
+  border-radius: 8px;
+  color: white;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+button:hover {
+  background: #1d4ed8;
+}
+
+.hidden {
+  display: none;
+}
+</style>
+</head>
+
+<body>
+    <a href="./" >Upload Image</a>
+<div class="card">
+  <h1>Image Gallery</h1>
+
+  <div class="grid" id="gallery"></div>
+  <button id="loadMore">Load 20 more</button>
+</div>
+
+<script>
+const API = ""; // same origin
+const LIMIT = 20;
+let continuationToken = null;
+let isFetching = false;
+
+// Cache using localStorage
+const CACHE_KEY = "image_cache";
+let cachedImages = JSON.parse(localStorage.getItem(CACHE_KEY) || "[]");
+
+// Utility: append images to the grid
+function appendImagesMetadata(images) {
+  const gallery = document.getElementById("gallery");
+  images.forEach(img => {
+    const imgEl = document.createElement("img");
+    imgEl.src = `${API}/image/${img.key}`;
+    imgEl.alt = img.key;
+    gallery.appendChild(imgEl);
+  });
+}
+
+// Load from cache first
+if (cachedImages.length) {
+  appendImagesMetadata(cachedImages);
+}
+
+// Fetch images from server
+async function loadImages() {
+  if (isFetching) return;
+  isFetching = true;
+
+  let url = `${API}/images?limit=${LIMIT}`;
+  if (continuationToken) url += `&continuation_token=${continuationToken}`;
+
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error("Failed to fetch images");
+    const data = await res.json();
+
+    const newImages = data.images || [];
+    if (newImages.length) {
+      appendImagesMetadata(newImages);
+      cachedImages = [...cachedImages, ...newImages];
+      localStorage.setItem(CACHE_KEY, JSON.stringify(cachedImages));
+    }
+
+    continuationToken = data.next_continuation_token;
+    if (!data.is_truncated) {
+      document.getElementById("loadMore").classList.add("hidden");
+    }
+
+  } catch (err) {
+    console.error(err);
+    alert("Error loading images");
+  } finally {
+    isFetching = false;
+  }
+}
+
+// Button event
+document.getElementById("loadMore").addEventListener("click", loadImages);
+
+// Load first batch if cache empty
+if (!cachedImages.length) loadImages();
+</script>
+</body>
+</html>
