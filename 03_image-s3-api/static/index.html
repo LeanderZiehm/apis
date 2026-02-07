@@ -12,7 +12,6 @@ body {
   justify-content: center;
   padding: 40px;
 }
-
 .card {
   background: #020617;
   border-radius: 12px;
@@ -20,42 +19,45 @@ body {
   width: 420px;
   box-shadow: 0 20px 40px rgba(0,0,0,0.4);
 }
-
-h1 {
-  font-size: 1.2rem;
-  margin-bottom: 16px;
-}
-
-input[type="file"] {
-  width: 100%;
-  margin-bottom: 16px;
-}
-
+h1 { font-size: 1.2rem; margin-bottom: 16px; }
+input[type="file"] { width: 100%; margin-bottom: 16px; }
 button {
   width: 100%;
   padding: 10px;
-  background: #2563eb;
   border: none;
   border-radius: 8px;
   color: white;
   font-weight: 600;
   cursor: pointer;
+  margin-bottom: 8px;
 }
-
-button:hover {
-  background: #1d4ed8;
-}
-
-.preview {
-  margin-top: 16px;
-}
-
+#pasteBtn { background: #2563eb; }
+#pasteBtn:hover { background: #1d4ed8; }
+#confirmBtn { background: #16a34a; }
+#confirmBtn:hover { background: #15803d; }
+#cancelBtn { background: #dc2626; position: relative; }
+#cancelBtn:hover { background: #b91c1c; }
+.preview { margin-top: 16px; position: relative; }
 .preview img {
   max-width: 100%;
   border-radius: 8px;
   margin-top: 8px;
+  display: block;
 }
-
+#preview .cancelX {
+  position: absolute;
+  top: 0px;
+  right: 0px;
+  background: #dc2626;
+  color: white;
+  border: none;
+  font-weight: bold;
+  border-radius: 50%;
+  width: 24px;
+  height: 24px;
+  cursor: pointer;
+  padding: 0px;
+}
 .code {
   font-size: 12px;
   word-break: break-all;
@@ -65,45 +67,156 @@ button:hover {
   border-radius: 6px;
   margin-top: 8px;
 }
+#error { color: #f87171; font-size: 12px; margin-top: 8px; }
 </style>
 </head>
-
 <body>
-  <a href="./gallery" >Gallery</a>
+<a href="./gallery">Gallery</a>
 <div class="card">
   <h1>Upload Image</h1>
-
   <input type="file" id="file" />
-  <button onclick="upload()">Upload</button>
-
+  <button id="pasteBtn">Paste Image from Clipboard</button>
   <div class="preview" id="preview"></div>
+  <div id="error"></div>
+  <button id="confirmBtn" style="display:none;">Confirm Upload</button>
 </div>
 
 <script>
-const API = "";//same origin
+const API = ""; // same origin
+let selectedFile = null;
 
-async function upload() {
-  const fileInput = document.getElementById("file");
-  if (!fileInput.files.length) return;
+const confirmBtn = document.getElementById("confirmBtn");
 
-  const formData = new FormData();
-  formData.append("file", fileInput.files[0]);
+// File input handler
+document.getElementById("file").addEventListener("change", e => {
+  selectedFile = e.target.files[0];
+  showPreview(selectedFile);
+});
 
-  const res = await fetch(`${API}/image/`, {
-    method: "POST",
-    body: formData
-  });
+// Paste button for mobile/desktop
+document.getElementById("pasteBtn").addEventListener("click", async () => {
+  try {
+    const clipboardItems = await navigator.clipboard.read();
+    let found = false;
+    for (const item of clipboardItems) {
+      if (item.types.includes("image/png") || item.types.includes("image/jpeg")) {
+        const blob = await item.getType(item.types[0]);
+        selectedFile = new File([blob], "clipboard.png", { type: blob.type });
+        showPreview(selectedFile);
+        found = true;
+        break;
+      }
+    }
+    if (!found) throw new Error("No image found in clipboard");
+  } catch (err) {
+    document.getElementById("error").innerText = "Failed to paste image: " + err.message;
+  }
+});
 
-  const data = await res.json();
-
-  const imgUrl = `${API}/image/${data.key}`;
-
-  document.getElementById("preview").innerHTML = `
-    <div>Uploaded:</div>
-    <img src="${imgUrl}" />
-    <div class="code">${imgUrl}</div>
+// Show preview + enable confirm
+function showPreview(file) {
+  const preview = document.getElementById("preview");
+  const error = document.getElementById("error");
+  error.innerText = "";
+  const url = URL.createObjectURL(file);
+  preview.innerHTML = `
+    <div>Preview:</div>
+    <img src="${url}" />
+    <button class="cancelX" title="Cancel">&times;</button>
   `;
+  confirmBtn.style.display = "block";
+
+  // Cancel X button
+  preview.querySelector(".cancelX").addEventListener("click", () => {
+    selectedFile = null;
+    document.getElementById("file").value = "";
+    preview.innerHTML = "";
+    confirmBtn.style.display = "none";
+  });
 }
+
+// // Upload on confirm
+// confirmBtn.addEventListener("click", async () => {
+//   if (!selectedFile) return;
+//   const formData = new FormData();
+//   formData.append("file", selectedFile);
+
+//   try {
+//     const res = await fetch(`${API}/image/`, {
+//       method: "POST",
+//       body: formData
+//     });
+//     if (!res.ok) throw new Error(`Upload failed: ${res.statusText}`);
+//     const data = await res.json();
+//     const imgUrl = `${API}/image/${data.key}`;
+//     const preview = document.getElementById("preview");
+//     preview.innerHTML = `
+//       <div>Uploaded:</div>
+//       <img src="${imgUrl}" />
+//       <div class="code">${imgUrl}</div>
+//     `;
+//     confirmBtn.style.display = "none";
+//   } catch (err) {
+//     document.getElementById("error").innerText = err.message;
+//   }
+// });
+
+
+confirmBtn.addEventListener("click", async () => {
+  if (!selectedFile) return;
+  const formData = new FormData();
+  formData.append("file", selectedFile);
+
+  try {
+    const res = await fetch(`${API}/image/`, {
+      method: "POST",
+      body: formData
+    });
+    if (!res.ok) throw new Error(`Upload failed: ${res.statusText}`);
+    const data = await res.json();
+
+    // Construct absolute URL
+    const absoluteUrl = `${window.location.origin}/image/${data.key}`;
+    const preview = document.getElementById("preview");
+
+    preview.innerHTML = `
+      <div style="display:flex; align-items:center; gap:8px;">
+        <a href="${absoluteUrl}" target="_blank" id="uploadedLink">${absoluteUrl}</a>
+        <button id="copyBtn" style="background:none; border:none; cursor:pointer;">
+          <svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="#1f1f1f">
+            <path d="M360-240q-33 0-56.5-23.5T280-320v-480q0-33 23.5-56.5T360-880h360q33 0 56.5 23.5T800-800v480q0 33-23.5 56.5T720-240H360Zm0-80h360v-480H360v480ZM200-80q-33 0-56.5-23.5T120-160v-560h80v560h440v80H200Zm160-240v-480 480Z"/>
+          </svg>
+        </button>
+      </div>
+      <a href="${absoluteUrl}" target="_blank"><img src="${absoluteUrl}" /></a>
+    `;
+
+    confirmBtn.style.display = "none";
+
+    // Copy to clipboard
+    document.getElementById("copyBtn").addEventListener("click", () => {
+      navigator.clipboard.writeText(absoluteUrl)
+        .then(() => alert("URL copied to clipboard!"))
+        .catch(err => alert("Failed to copy URL: " + err));
+    });
+
+  } catch (err) {
+    document.getElementById("error").innerText = err.message;
+  }
+});
+
+
+// Optional: handle Ctrl+V paste globally for desktop
+document.addEventListener("paste", e => {
+  const items = e.clipboardData.items;
+  for (const item of items) {
+    if (item.type.startsWith("image/")) {
+      selectedFile = item.getAsFile();
+      showPreview(selectedFile);
+      break;
+    }
+  }
+});
 </script>
 </body>
 </html>

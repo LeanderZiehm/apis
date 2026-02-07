@@ -35,6 +35,12 @@ h1 {
 .grid img {
   width: 100%;
   border-radius: 8px;
+  cursor: pointer;
+  transition: transform 0.2s;
+}
+
+.grid img:hover {
+  transform: scale(1.05);
 }
 
 button {
@@ -55,16 +61,68 @@ button:hover {
 .hidden {
   display: none;
 }
+
+/* Overlay styles */
+#overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(15,23,42,0.95);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 9999;
+  visibility: hidden;
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+
+#overlay.visible {
+  visibility: visible;
+  opacity: 1;
+}
+
+#overlay img {
+  max-width: 90%;
+  max-height: 90%;
+  border-radius: 12px;
+  box-shadow: 0 20px 40px rgba(0,0,0,0.7);
+}
+
+#overlay button {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  background: #ef4444;
+  border: none;
+  border-radius: 8px;
+  padding: 10px 15px;
+  font-size: 1rem;
+  cursor: pointer;
+  color: white;
+}
+
+#overlay button:hover {
+  background: #b91c1c;
+}
 </style>
 </head>
 
 <body>
-    <a href="./" >Upload Image</a>
+<a href="./">Upload Image</a>
 <div class="card">
   <h1>Image Gallery</h1>
 
   <div class="grid" id="gallery"></div>
   <button id="loadMore">Load 20 more</button>
+</div>
+
+<!-- Fullscreen overlay -->
+<div id="overlay">
+  <button id="closeOverlay">✕</button>
+  <img id="overlayImage" src="" alt="Full view">
 </div>
 
 <script>
@@ -84,6 +142,13 @@ function appendImagesMetadata(images) {
     const imgEl = document.createElement("img");
     imgEl.src = `${API}/image/${img.key}`;
     imgEl.alt = img.key;
+
+    // Click to open overlay
+    imgEl.addEventListener("click", () => {
+      document.getElementById("overlayImage").src = imgEl.src;
+      document.getElementById("overlay").classList.add("visible");
+    });
+
     gallery.appendChild(imgEl);
   });
 }
@@ -128,6 +193,11 @@ async function loadImages() {
 
 // Button event
 document.getElementById("loadMore").addEventListener("click", loadImages);
+
+// Overlay close
+document.getElementById("closeOverlay").addEventListener("click", () => {
+  document.getElementById("overlay").classList.remove("visible");
+});
 
 // Load first batch if cache empty
 if (!cachedImages.length) loadImages();
