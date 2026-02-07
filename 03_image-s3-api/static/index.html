@@ -79,13 +79,32 @@ button {
   <div class="preview" id="preview"></div>
   <div id="error"></div>
   <button id="confirmBtn" style="display:none;">Confirm Upload</button>
+  <div id="spinner" style="display:none; margin-top:8px; justify-content: center;">
+  <svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+    <path fill="white" d="M10.14,1.16a11,11,0,0,0-9,8.92A1.59,1.59,0,0,0,2.46,12,1.52,1.52,0,0,0,4.11,10.7a8,8,0,0,1,6.66-6.61A1.42,1.42,0,0,0,12,2.69h0A1.57,1.57,0,0,0,10.14,1.16Z">
+      <animateTransform attributeName="transform" type="rotate" dur="0.75s" values="0 12 12;360 12 12" repeatCount="indefinite"/>
+    </path>
+  </svg>
 </div>
+</div>
+
+
+<template id="copy-btn-template">
+  <button class="copy-btn" style="background:none; border:none; cursor:pointer;">
+    <svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="white">
+      <path fill="white" d="M360-240q-33 0-56.5-23.5T280-320v-480q0-33 23.5-56.5T360-880h360q33 0 56.5 23.5T800-800v480q0 33-23.5 56.5T720-240H360Zm0-80h360v-480H360v480ZM200-80q-33 0-56.5-23.5T120-160v-560h80v560h440v80H200Zm160-240v-480 480Z"/>
+    </svg>
+  </button>
+</template>
+
+
 
 <script>
 const API = ""; // same origin
 let selectedFile = null;
 
 const confirmBtn = document.getElementById("confirmBtn");
+const errorDisplay = document.getElementById("error");
 
 // File input handler
 document.getElementById("file").addEventListener("change", e => {
@@ -109,15 +128,15 @@ document.getElementById("pasteBtn").addEventListener("click", async () => {
     }
     if (!found) throw new Error("No image found in clipboard");
   } catch (err) {
-    document.getElementById("error").innerText = "Failed to paste image: " + err.message;
+    errorDisplay.innerText = "Failed to paste image: " + err.message;
   }
 });
 
 // Show preview + enable confirm
 function showPreview(file) {
   const preview = document.getElementById("preview");
-  const error = document.getElementById("error");
-  error.innerText = "";
+
+  errorDisplay.innerText = "";
   const url = URL.createObjectURL(file);
   preview.innerHTML = `
     <div>Preview:</div>
@@ -135,76 +154,56 @@ function showPreview(file) {
   });
 }
 
-// // Upload on confirm
-// confirmBtn.addEventListener("click", async () => {
-//   if (!selectedFile) return;
-//   const formData = new FormData();
-//   formData.append("file", selectedFile);
-
-//   try {
-//     const res = await fetch(`${API}/image/`, {
-//       method: "POST",
-//       body: formData
-//     });
-//     if (!res.ok) throw new Error(`Upload failed: ${res.statusText}`);
-//     const data = await res.json();
-//     const imgUrl = `${API}/image/${data.key}`;
-//     const preview = document.getElementById("preview");
-//     preview.innerHTML = `
-//       <div>Uploaded:</div>
-//       <img src="${imgUrl}" />
-//       <div class="code">${imgUrl}</div>
-//     `;
-//     confirmBtn.style.display = "none";
-//   } catch (err) {
-//     document.getElementById("error").innerText = err.message;
-//   }
-// });
-
-
 confirmBtn.addEventListener("click", async () => {
   if (!selectedFile) return;
+
   const formData = new FormData();
   formData.append("file", selectedFile);
+
+  // show spinner & disable button
+  spinner.style.display = "flex";
+  confirmBtn.disabled = true;
+  errorDisplay.textContent = "";
 
   try {
     const res = await fetch(`${API}/image/`, {
       method: "POST",
       body: formData
     });
+
     if (!res.ok) throw new Error(`Upload failed: ${res.statusText}`);
     const data = await res.json();
-
-    // Construct absolute URL
     const absoluteUrl = `${window.location.origin}/image/${data.key}`;
-    const preview = document.getElementById("preview");
 
+    // Build preview
     preview.innerHTML = `
       <div style="display:flex; align-items:center; gap:8px;">
-        <a href="${absoluteUrl}" target="_blank" id="uploadedLink">${absoluteUrl}</a>
-        <button id="copyBtn" style="background:none; border:none; cursor:pointer;">
-          <svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="#1f1f1f">
-            <path d="M360-240q-33 0-56.5-23.5T280-320v-480q0-33 23.5-56.5T360-880h360q33 0 56.5 23.5T800-800v480q0 33-23.5 56.5T720-240H360Zm0-80h360v-480H360v480ZM200-80q-33 0-56.5-23.5T120-160v-560h80v560h440v80H200Zm160-240v-480 480Z"/>
-          </svg>
-        </button>
+        <a href="${absoluteUrl}" target="_blank" class="uploaded-link">${absoluteUrl}</a>
       </div>
-      <a href="${absoluteUrl}" target="_blank"><img src="${absoluteUrl}" /></a>
+      <a href="${absoluteUrl}" target="_blank"><img src="${absoluteUrl}" class="uploaded-img"/></a>
     `;
 
-    confirmBtn.style.display = "none";
-
-    // Copy to clipboard
-    document.getElementById("copyBtn").addEventListener("click", () => {
+    // Add copy button from template
+    const template = document.getElementById("copy-btn-template");
+    const copyBtnNode = template.content.cloneNode(true);
+    const copyBtn = copyBtnNode.querySelector(".copy-btn");
+    copyBtn.addEventListener("click", () => {
       navigator.clipboard.writeText(absoluteUrl)
         .then(() => alert("URL copied to clipboard!"))
         .catch(err => alert("Failed to copy URL: " + err));
     });
+    preview.querySelector("div").appendChild(copyBtn);
+
+    // hide upload button if desired
+    confirmBtn.style.display = "none";
 
   } catch (err) {
-    document.getElementById("error").innerText = err.message;
+    errorDisplay.textContent = err.message;
+  } finally {
+    spinner.style.display = "none";
+    confirmBtn.disabled = false;
   }
 });
-
 
 // Optional: handle Ctrl+V paste globally for desktop
 document.addEventListener("paste", e => {
