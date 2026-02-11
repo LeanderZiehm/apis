@@ -1,11 +1,10 @@
 import os
 import hashlib
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional
 
-from fastapi import FastAPI, Depends, HTTPException, Form
-from fastapi.responses import HTMLResponse, JSONResponse
-from pydantic import BaseModel
+from fastapi import FastAPI, Depends, HTTPException, Form, Request
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from sqlalchemy import (
     create_engine,
     String,
@@ -15,6 +14,8 @@ from sqlalchemy import (
     select,
     desc,
     Index,
+    ForeignKey,
+    func,
 )
 from sqlalchemy.orm import (
     DeclarativeBase,
@@ -22,6 +23,7 @@ from sqlalchemy.orm import (
     mapped_column,
     sessionmaker,
     Session,
+    relationship,
 )
 from sqlalchemy.exc import IntegrityError
 import uvicorn
@@ -41,6 +43,10 @@ class Base(DeclarativeBase):
     pass
 
 
+# -----------------------------------------------------------------------------
+# Models
+# -----------------------------------------------------------------------------
+
 class Page(Base):
     __tablename__ = "pages"
 
@@ -51,11 +57,37 @@ class Page(Base):
     )
     html_content: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    views: Mapped[int] = mapped_column(Integer, default=0)
+
+    view_events: Mapped[list["PageView"]] = relationship(
+        back_populates="page",
+        cascade="all, delete-orphan"
+    )
+
+
+class PageView(Base):
+    __tablename__ = "page_views"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+
+    page_id: Mapped[int] = mapped_column(
+        ForeignKey("pages.id", ondelete="CASCADE"),
+        index=True
+    )
+
+    page: Mapped["Page"] = relationship(back_populates="view_events")
+
+    viewed_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=datetime.utcnow,
+        index=True
+    )
+
+    ip_address: Mapped[Optional[str]] = mapped_column(String(64))
+    user_agent: Mapped[Optional[str]] = mapped_column(Text)
+    referer: Mapped[Optional[str]] = mapped_column(Text)
 
     __table_args__ = (
-        Index("ix_pages_created_at", "created_at"),
-        Index("ix_pages_views", "views"),
+        Index("ix_page_views_page_time", "page_id", "viewed_at"),
     )
 
 
@@ -90,14 +122,15 @@ def resolve_page(identifier: str, db: Session) -> Optional[Page]:
 
 
 # -----------------------------------------------------------------------------
-# API
+# Create Page
 # -----------------------------------------------------------------------------
 
-@app.post("/api/pages")
-def create_page(html_content: str = Form(...),
-                slug: Optional[str] = Form(None),
-                db: Session = Depends(get_db)):
-
+@app.post("/submit")
+def create_page(
+    html_content: str = Form(...),
+    slug: Optional[str] = Form(None),
+    db: Session = Depends(get_db)
+):
     page_hash = generate_hash(html_content)
 
     page = Page(
@@ -114,17 +147,25 @@ def create_page(html_content: str = Form(...),
         db.rollback()
         raise HTTPException(status_code=400, detail="Slug already exists.")
 
-    return {"url": f"/p/{page.slug or page.hash}"}
+    return RedirectResponse(
+        url=f"/p/{page.slug or page.hash}",
+        status_code=303,
+    )
 
+
+# -----------------------------------------------------------------------------
+# Update Slug (AJAX)
+# -----------------------------------------------------------------------------
 
 @app.post("/api/pages/{identifier}/slug")
-def update_slug(identifier: str,
-                slug: str = Form(...),
-                db: Session = Depends(get_db)):
-
+def update_slug(
+    identifier: str,
+    slug: str = Form(...),
+    db: Session = Depends(get_db),
+):
     page = resolve_page(identifier, db)
     if not page:
-        raise HTTPException(status_code=404, detail="Page not found.")
+        raise HTTPException(status_code=404)
 
     page.slug = slug
 
@@ -141,10 +182,120 @@ def update_slug(identifier: str,
 
 
 # -----------------------------------------------------------------------------
-# UI
+# Homepage
 # -----------------------------------------------------------------------------
 
-def base_styles():
+@app.get("/", response_class=HTMLResponse)
+def homepage(db: Session = Depends(get_db)):
+
+    results = db.execute(
+        select(
+            Page,
+            func.count(PageView.id).label("view_count")
+        )
+        .outerjoin(PageView)
+        .group_by(Page.id)
+        .order_by(desc("view_count"))
+    ).all()
+
+    items = ""
+    for page, view_count in results:
+        identifier = page.slug or page.hash
+        items += f"""
+        <li>
+            <div>
+                <a href="/p/{identifier}">{identifier}</a>
+                <small> · views: {view_count}</small>
+            </div>
+            <button class="edit-btn" onclick="openModal('{page.hash}')">Edit</button>
+        </li>
+        """
+
+    return f"""
+    <html>
+    <head>
+        {styles()}
+    </head>
+    <body>
+
+    <div class="card">
+        <h2>Create Page</h2>
+        <form action="/submit" method="post">
+            <input type="text" name="slug" placeholder="Optional slug">
+            <textarea name="html_content" rows="8" required></textarea>
+            <button type="submit">Save</button>
+        </form>
+    </div>
+
+    <h2>Pages</h2>
+    <ul>{items}</ul>
+
+    {modal()}
+
+    </body>
+    </html>
+    """
+
+
+# -----------------------------------------------------------------------------
+# View Page
+# -----------------------------------------------------------------------------
+
+@app.get("/p/{identifier}", response_class=HTMLResponse)
+def view_page(
+    identifier: str,
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    page = resolve_page(identifier, db)
+    if not page:
+        raise HTTPException(status_code=404)
+
+    # Record analytics event
+    view = PageView(
+        page_id=page.id,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        referer=request.headers.get("referer"),
+    )
+    db.add(view)
+    db.commit()
+
+    view_count = db.scalar(
+        select(func.count(PageView.id)).where(PageView.page_id == page.id)
+    )
+
+    return f"""
+    <html>
+    <head>
+        {styles()}
+    </head>
+    <body>
+
+    <div style="display:flex;justify-content:space-between;margin-bottom:20px;">
+        <a href="/">← Back</a>
+        <div>
+            <span>Views: {view_count}</span>
+            <button class="edit-btn" onclick="openModal('{page.hash}')">
+                Edit Slug
+            </button>
+        </div>
+    </div>
+
+    {page.html_content}
+
+    {modal()}
+
+    </body>
+    </html>
+    """
+
+
+# -----------------------------------------------------------------------------
+# UI Helpers
+# -----------------------------------------------------------------------------
+
+def styles():
     return """
     <style>
         body {
@@ -168,19 +319,21 @@ def base_styles():
             border-radius:8px;
             border:1px solid #ddd;
             margin-bottom:15px;
-            font-size:14px;
         }
 
         button {
             background:#111;
             color:white;
             border:none;
-            padding:10px 16px;
+            padding:8px 14px;
             border-radius:8px;
             cursor:pointer;
         }
 
-        button:hover { background:#333; }
+        .edit-btn {
+            background:#eee;
+            color:#111;
+        }
 
         ul { list-style:none; padding:0; }
 
@@ -191,17 +344,8 @@ def base_styles():
             margin-bottom:10px;
             display:flex;
             justify-content:space-between;
-            align-items:center;
         }
 
-        .edit-btn {
-            background:#eee;
-            color:#111;
-            padding:6px 10px;
-            font-size:12px;
-        }
-
-        /* Modal */
         .modal {
             display:none;
             position:fixed;
@@ -218,13 +362,8 @@ def base_styles():
             width:400px;
         }
 
-        .error {
-            border:2px solid #e53935 !important;
-        }
-
-        .success {
-            border:2px solid #2e7d32 !important;
-        }
+        .error { border:2px solid #e53935 !important; }
+        .success { border:2px solid #2e7d32 !important; }
 
         .error-text {
             color:#e53935;
@@ -234,80 +373,7 @@ def base_styles():
     """
 
 
-@app.get("/", response_class=HTMLResponse)
-def homepage(db: Session = Depends(get_db)):
-    pages = db.scalars(select(Page).order_by(desc(Page.created_at))).all()
-
-    items = ""
-    for p in pages:
-        identifier = p.slug or p.hash
-        items += f"""
-        <li>
-            <div>
-                <a href="/p/{identifier}">{identifier}</a>
-                <small> · views: {p.views}</small>
-            </div>
-            <button class="edit-btn" onclick="openModal('{p.hash}')">Edit</button>
-        </li>
-        """
-
-    return f"""
-    <html>
-    <head>
-        {base_styles()}
-    </head>
-    <body>
-
-    <div class="card">
-        <h2>Create Page</h2>
-        <form action="/api/pages" method="post">
-            <input type="text" name="slug" placeholder="Optional slug">
-            <textarea name="html_content" rows="8" required></textarea>
-            <button type="submit">Save</button>
-        </form>
-    </div>
-
-    <h2>Pages</h2>
-    <ul>{items}</ul>
-
-    {modal_script()}
-
-    </body>
-    </html>
-    """
-
-
-@app.get("/p/{identifier}", response_class=HTMLResponse)
-def view_page(identifier: str, db: Session = Depends(get_db)):
-    page = resolve_page(identifier, db)
-    if not page:
-        raise HTTPException(status_code=404)
-
-    page.views += 1
-    db.commit()
-
-    return f"""
-    <html>
-    <head>
-        {base_styles()}
-    </head>
-    <body>
-
-    <div style="display:flex;justify-content:space-between;margin-bottom:20px;">
-        <a href="/">← Back</a>
-        <button class="edit-btn" onclick="openModal('{page.hash}')">Edit Slug</button>
-    </div>
-
-    {page.html_content}
-
-    {modal_script()}
-
-    </body>
-    </html>
-    """
-
-
-def modal_script():
+def modal():
     return """
     <div id="modal" class="modal">
         <div class="modal-content">
@@ -358,7 +424,7 @@ def modal_script():
         }
     </script>
     """
-    
+
 
 # -----------------------------------------------------------------------------
 
