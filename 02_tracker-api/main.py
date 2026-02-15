@@ -16,13 +16,6 @@ from enum import Enum as PyEnum
 from typing import List
 from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.middleware.cors import CORSMiddleware
-# from dotenv import load_dotenv
-
-# -------------------------------------------------------------------
-# Load environment
-# -------------------------------------------------------------------
-
-# load_dotenv()
 
 DB_HOST = os.getenv("POSTGRES_HOST")
 DB_PORT = os.getenv("POSTGRES_PORT")

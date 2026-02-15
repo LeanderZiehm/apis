@@ -1,12 +1,18 @@
 import time
 from typing import List, Dict, Optional
+import os
 import requests
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
-import os 
-from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.middleware.cors import CORSMiddleware
-
+from fastapi.openapi.docs import get_swagger_ui_html
+from pydantic import BaseModel
+from sqlalchemy import create_engine, Column, Integer, String, Text, Float, UniqueConstraint
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker
+import uvicorn
+# -----------------------------
+# Environment & Config
+# -----------------------------
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
@@ -15,9 +21,30 @@ HEADERS = {
     "Authorization": f"Bearer {GROQ_API_KEY}",
 }
 
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+psycopg2://username:password@host:5432/database")
+
 
 # -----------------------------
-# Model Availability Management
+# Database Setup
+# -----------------------------
+Base = declarative_base()
+engine = create_engine(DATABASE_URL, echo=False)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+class ChatCache(Base):
+    __tablename__ = "chat_cache"
+    id = Column(Integer, primary_key=True, index=True)
+    model = Column(String, index=True)
+    system_prompt = Column(Text, nullable=True)
+    message = Column(Text, nullable=False)
+    response = Column(Text, nullable=False)
+    timestamp = Column(Float, default=time.time)
+    __table_args__ = (UniqueConstraint("model", "system_prompt", "message", name="uq_cache"),)
+
+Base.metadata.create_all(bind=engine)
+
+# -----------------------------
+# Model Management
 # -----------------------------
 class ModelState:
     def __init__(self, model_id: str):
@@ -40,7 +67,6 @@ class ModelState:
             f"Disabled for {retry_after_seconds}s"
         )
 
-
 class ModelPool:
     def __init__(self, models: List[str]):
         self.models_order: List[str] = models.copy()
@@ -53,37 +79,60 @@ class ModelPool:
         return not any(m.is_available() for m in self.models.values())
 
     def reorder(self, new_order: List[str]):
-        # Keep only models that exist
         filtered_order = [m for m in new_order if m in self.models]
-        # Add any models not in new_order at the end
         remaining = [m for m in self.models_order if m not in filtered_order]
         self.models_order = filtered_order + remaining
         print(f"[INFO] New model order: {self.models_order}")
 
-
 # -----------------------------
-# Groq Client
+# Groq Client with Caching
 # -----------------------------
 class RateLimitError(Exception):
     def __init__(self, retry_after: int):
         self.retry_after = retry_after
-
 
 class GroqClient:
     def __init__(self, model_pool: ModelPool):
         self.model_pool = model_pool
 
     def chat(self, messages: List[dict], model: Optional[str] = None) -> dict:
+        # Extract system/user message
+        system_prompt = next((m["content"] for m in messages if m["role"] == "system"), None)
+        user_message = next((m["content"] for m in messages if m["role"] == "user"), None)
+
+        # Check cache first
+        with SessionLocal() as db:
+            cached = db.query(ChatCache).filter_by(
+                model=model or self.model_pool.get_available_models()[0],
+                system_prompt=system_prompt,
+                message=user_message
+            ).first()
+            if cached:
+                return {"model": cached.model, "choices": [{"message": {"content": cached.response}}]}
+
         models_to_try = [model] if model else self.model_pool.get_available_models()
         if not models_to_try:
             raise HTTPException(status_code=503, detail="All models are currently rate-limited")
 
         last_error = None
-
         for model_id in models_to_try:
             model_state = self.model_pool.models[model_id]
             try:
                 response = self._call_model(model_id, messages)
+                # Save to cache
+                with SessionLocal() as db:
+                    chat_cache = ChatCache(
+                        model=model_id,
+                        system_prompt=system_prompt,
+                        message=user_message,
+                        response=response["choices"][0]["message"]["content"],
+                        timestamp=time.time()
+                    )
+                    db.add(chat_cache)
+                    try:
+                        db.commit()
+                    except:
+                        db.rollback()
                 return response
             except RateLimitError as e:
                 model_state.disable(e.retry_after)
@@ -105,11 +154,10 @@ class GroqClient:
 
         return response.json()
 
-
 # -----------------------------
-# FastAPI Layer
+# FastAPI Setup
 # -----------------------------
-app = FastAPI(title="Groq Auto Model Switcher")
+app = FastAPI(title="Groq Auto Model Switcher with Caching")
 
 app.add_middleware(
     CORSMiddleware,
@@ -118,7 +166,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
 
 all_models = [
     "openai/gpt-oss-120b",
@@ -130,7 +177,6 @@ all_models = [
 
 model_pool = ModelPool(models=all_models)
 groq_client = GroqClient(model_pool)
-
 
 # -----------------------------
 # Pydantic Schemas
@@ -152,75 +198,64 @@ class ChatRequestAuto(BaseModel):
             }
         }
 
-
 class ReorderRequest(BaseModel):
     new_order: List[str]
     class ConfigDict:
         json_schema_extra = {
             "example": {
                 "new_order": [
-                    "leander2 llama-3.3-70b-versatile",
+                    "llama-3.3-70b-versatile",
                     "openai/gpt-oss-120b",
                     "llama-3.1-8b-instant"
                 ]
             }
         }
 
-
+# -----------------------------
+# Endpoints
+# -----------------------------
 @app.get("/", include_in_schema=False)
 async def custom_swagger_ui():
     return get_swagger_ui_html(openapi_url="/openapi.json", title="OCR API Docs")
 
-
-
-# def chat 
-
-# -----------------------------
-# Endpoints
-# -----------------------------
 @app.get("/models/available")
 def get_available_models():
     return {"available_models": model_pool.get_available_models()}
 
-
-
-
-
 @app.post("/chat/auto")
 def chat_auto(request: ChatRequestAuto):
-    messages = [{ "role": "system", "content": request.system_prompt },{"role": "user", "content": request.message}]
+    messages = [
+        {"role": "system", "content": request.system_prompt},
+        {"role": "user", "content": request.message}
+    ]
     response = groq_client.chat(messages)
     return {
         "model_used": response["model"],
         "response": response["choices"][0]["message"]["content"],
     }
 
-
 @app.post("/chat/manual")
 def chat_manual(request: ChatRequestManuel):
     if not request.model or request.model not in all_models:
         raise HTTPException(status_code=400, detail="Invalid or missing model")
 
-    messages = [{ "role": "system", "content": request.system_prompt },{"role": "user", "content": request.message}]
+    messages = [
+        {"role": "system", "content": request.system_prompt},
+        {"role": "user", "content": request.message}
+    ]
     response = groq_client.chat(messages, model=request.model)
     return {
         "model_used": response["model"],
         "response": response["choices"][0]["message"]["content"],
     }
 
-
 @app.post("/models/reorder")
 def reorder_models(request: ReorderRequest):
     model_pool.reorder(request.new_order)
     return {"new_order": model_pool.models_order}
 
-
 @app.get("/models/best")
 def get_best_model():
-    """
-    Returns the user's favorite model (first in the priority list)
-    along with its availability status.
-    """
     if not model_pool.models_order:
         return {"error": "No models configured"}
 
@@ -232,12 +267,8 @@ def get_best_model():
         "available": best_model_state.is_available()
     }
 
-
 @app.get("/models/best-available")
 def get_best_available_model():
-    """
-    Returns the highest-priority model that is currently available.
-    """
     available_models = model_pool.get_available_models()
     if not available_models:
         return {"error": "No models currently available"}
@@ -249,3 +280,9 @@ def get_best_available_model():
     }
 
 
+def main():
+    uvicorn.run(app=app,port=8805)
+
+
+if __name__ == "__main__":
+    main()
