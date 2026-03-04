@@ -24,6 +24,12 @@ HEADERS = {
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+psycopg2://username:password@host:5432/database")
 
 
+if not GROQ_API_KEY:
+    raise RuntimeError("Environment variable GROQ_API_KEY is not set")
+
+if not DATABASE_URL:
+    print("WARNING: Environment variable DATABASE_URL is not set")
+
 # -----------------------------
 # Database Setup
 # -----------------------------
