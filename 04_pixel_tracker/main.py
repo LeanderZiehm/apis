@@ -1,4 +1,4 @@
-# todo convert this to node.js or go or rust 
+# todo convert this to node.js or go or rust
 import os
 import io
 from datetime import datetime
@@ -12,8 +12,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from PIL import Image
 import uvicorn
 
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+psycopg2://username:password@host:5432/database")
-
+DATABASE_URL = os.getenv(
+    "DATABASE_URL", "postgresql+psycopg2://username:password@host:5432/database"
+)
 
 
 # Database setup
@@ -86,8 +87,10 @@ async def track_pixel(slug: str, request: Request):
         headers=headers,
     )
 
+
 def main():
-    uvicorn.run(app=app,port=8804)
+    uvicorn.run(app=app, port=8804)
+
 
 if __name__ == "__main__":
     main()
