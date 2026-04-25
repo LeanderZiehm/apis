@@ -10,6 +10,8 @@ from datetime import datetime
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, Column, Integer, String, DateTime, JSON
 from sqlalchemy.orm import declarative_base, sessionmaker
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.openapi.docs import get_swagger_ui_html
 
 load_dotenv()
 
@@ -47,12 +49,29 @@ def save_log(endpoint: str, result: dict):
 app = FastAPI()
 
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+@app.get("/", include_in_schema=False)
+async def custom_swagger_ui():
+    return get_swagger_ui_html(openapi_url="/openapi.json", title="OCR API Docs")
+
+
+
+
 def load_image(contents: bytes):
     try:
         image = Image.open(io.BytesIO(contents)).convert("RGB")
         return np.array(image)
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid image file")
+
 
 
 @app.post("/extract-hex")
