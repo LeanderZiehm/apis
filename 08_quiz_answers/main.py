@@ -5,7 +5,7 @@ from sqlalchemy.orm import declarative_base, sessionmaker
 from datetime import datetime
 from dotenv import load_dotenv
 from fastapi.openapi.docs import get_swagger_ui_html
-
+import os
 load_dotenv()
 
 DATABASE_URL = os.getenv("DATABASE_URL")
