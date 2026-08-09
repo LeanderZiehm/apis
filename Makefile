@@ -4,5 +4,3 @@
 	cd 08_quiz_answers && make
 03 image:
 	cd 03_image-s3-api && make
-01 hex:
-	cd 01_image_hex && make
