@@ -11,3 +11,8 @@ dependencies = [
     "sqlalchemy>=2.0.46",
     "uvicorn>=0.40.0",
 ]
+
+[dependency-groups]
+dev = [
+    "black>=26.5.1",
+]

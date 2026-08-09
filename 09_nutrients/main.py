@@ -23,7 +23,7 @@ import os
 # =========================================================
 # DATABASE
 # =========================================================
-DATABASE_URL = os.getenv("DATABASE_URL","") #""
+DATABASE_URL = os.getenv("DATABASE_URL","")
 
 if DATABASE_URL == "":
     print("DATABASE_URL not defined, please create .env") 
@@ -383,4 +383,4 @@ def get_day_stats(eaten_day: date, db: Session = Depends(get_db)):
 # =========================================================
 
 if __name__ == "__main__":
-    uvicorn.run(app)
+    uvicorn.run(app,port=8809)
